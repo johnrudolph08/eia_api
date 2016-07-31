@@ -1,13 +1,12 @@
 import requests
 import json
 import datetime
+import pyowm
 
 
 class CallApi:
     """
     Class the returns an eia_api object
-    Attributes are set for each json item and can be returned by
-    calling CallApi.item_item2 EX: CallApi.series or CallApi.series_data for nested item
     """
 
     eia_url = 'http://api.eia.gov/series/'
@@ -48,23 +47,64 @@ class CallApi:
             # to handle series key of JSON that returns a list with nested
             elif isinstance(value, list):
                 for i, item in enumerate(value):
-                    setattr(self, 'series_{}'.format(i+1), item)
+                    setattr(self, 'series_{}'.format(i + 1), item)
+
+
+class GetWeather:
+
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.wether_data = self.get_weather_data()
+        self.temps_dict = self.get_temperature(self.wether_data)
+        self.temps = self.temps_dict['temp']
+        self.max_temps = self.temps_dict['temp_max']
+        self.min_temps = self.temps_dict['temp_min']
+        self.time = self.get_time(self.wether_data)
+
+    def get_weather_data(self):
+        """
+        Gets weather forecast from openweathermap
+        """
+        owm = pyowm.OWM(self.api_key)
+        fc = owm.three_hours_forecast('Seattle,US')
+        f = fc.get_forecast()
+        return f.get_weathers()
+
+    def get_temperature(self, forecast):
+        """
+        Parses temperature and time from weather objects imbedded in forecast object
+        :forecast object returned from get_weather_data
+        """
+        temps_dict = {'temp': None, 'temp_max': None, 'temp_min': None}
+        for key in temps_dict:
+            temps_dict[key] = [i.get_temperature(
+                'fahrenheit').get(key) for i in forecast]
+        return temps_dict
+
+    def get_time(self, forecast):
+        """
+        Parses temperature and time from weather objects imbedded in forecast object
+        :forecast object returned from get_weather_data
+        """
+        time = [datetime.datetime.fromtimestamp(i.get_reference_time()).strftime('%Y-%m-%d %H:%M:%S')
+                for i in forecast]
+        return time
 
 
 def create_datetime(series):
-        """
-        Creates a list of datetimes from eia_json
-        :param series is an eia series list of attributes
-        """
-        freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d', 'D': '%Y%m%d'}
-        date_list = [datetime.datetime.strptime(x[0], freq[series['f']]).strftime(
-            '%Y-%m-%d %H:%M:%S') for x in series['data']]
-        return date_list
+    """
+    Creates a list of datetimes from eia_json
+    :param series is an eia series list of attributes
+    """
+    freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d', 'D': '%Y%m%d'}
+    date_list = [datetime.datetime.strptime(x[0], freq[series['f']]).strftime(
+        '%Y-%m-%d %H:%M:%S') for x in series['data']]
+    return date_list
 
 
 def create_values(series):
-        """
-        Creates a list of values
-        :param series is an eia series list of attributes
-        """
-        return [x[1] for x in series['data']]
+    """
+    Creates a list of values
+    :param series is an eia series list of attributes
+    """
+    return [x[1] for x in series['data']]
