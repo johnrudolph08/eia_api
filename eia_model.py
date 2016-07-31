@@ -86,9 +86,14 @@ class GetWeather:
         Parses temperature and time from weather objects imbedded in forecast object
         :forecast object returned from get_weather_data
         """
-        time = [datetime.datetime.fromtimestamp(i.get_reference_time()).strftime('%Y-%m-%d %H:%M:%S')
-                for i in forecast]
-        return time
+        time_3hr = [datetime.datetime.fromtimestamp(i.get_reference_time()).strftime('%Y-%m-%d %H:%M:%S')
+                    for i in forecast]
+        time1 = datetime.datetime.strptime(time_3hr[0], '%Y-%m-%d %H:%M:%S')
+        time2 = datetime.datetime.strptime(time_3hr[-1], '%Y-%m-%d %H:%M:%S')
+        dif = int((time2 - time1).total_seconds() / 3600)
+        time_1hr = [(time1 + datetime.timedelta(hours=x)).strftime('%Y-%m-%d %H:%M:%S')
+                    for x in range(dif + 1)]
+        return time_1hr
 
 
 def create_datetime(series):
