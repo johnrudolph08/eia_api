@@ -1,14 +1,15 @@
 import requests
 import json
-import datetime
 import pyowm
+import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
+from datetime import datetime
 
 
-class CallApi:
+class GetEnergy(object):
     """
-    Class the returns an eia_api object
+    Class the beturns an eia_api object
     """
 
     eia_url = 'http://api.eia.gov/series/'
@@ -25,7 +26,7 @@ class CallApi:
         self.api_key = api_key
         self.series_id = [";".join(args)]
         self.json = self.get_series()
-        self.create_atttributes()
+        self.df = self.create_dataframes(self.json)
 
     def get_series(self):
         """
@@ -38,18 +39,30 @@ class CallApi:
         eia_req = requests.get(self.eia_url, params=api_parms)
         return json.loads(eia_req.text)
 
-    def create_atttributes(self):
+    def create_dataframes(self, json):
+        df_dict = {}
+        for series in json['series']:
+            df = pd.DataFrame(self.get_values(series), index=self.get_dates(series),
+                              columns=['values'])
+            df_dict[series['series_id']] = df
+        return df_dict
+
+    @staticmethod
+    def get_dates(series):
+        """Parse dates from eia json['series']
+        :param series: a series object returned by eia json['series']
         """
-        Set class attributes for each dict item from returned json
+        freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d', 'D': '%Y%m%d'}
+        date_list = [datetime.strptime(x[0], freq[series['f']]).strftime(
+            '%Y-%m-%d %H:%M:%S') for x in series['data']]
+        return date_list
+
+    @staticmethod
+    def get_values(series):
+        """Parse values from eia json['series']
+        :param series: a series object returned by eia json['series']
         """
-        for key, value in self.json.items():
-            # to handle request key of JSON that returns a nested dictionary
-            if isinstance(value, dict):
-                setattr(self, key, value)
-            # to handle series key of JSON that returns a list with nested
-            elif isinstance(value, list):
-                for i, item in enumerate(value):
-                    setattr(self, 'series_{}'.format(i + 1), item)
+        return [value[1] for value in series['data']]
 
 
 class GetWeather:
@@ -85,14 +98,22 @@ class GetWeather:
             for j in temps_dict:
                 temps_dict[j] = i.get_temperature('fahrenheit').get(j)
             time_dict[time] = temps_dict
-
         return time_dict
 
     def interpolate_weather(self, weather_detail, key):
+        """
+        Interpolates the 3hr forecast to an hourly forecast using cubic interpolation
+        :param weather_detail is dict object of weather attributes returned from get_weather_detail
+        :param key is dict key to return temperature (temp, temp_max or temp_min)
+        """
+        # TODO need to sort weather detail by date !!!arrgrggg
         temps = np.asarray([weather_detail[i][key] for i in weather_detail])
         x = np.linspace(1, len(temps), num=len(temps), endpoint=True)
-        f_cubic = interp1d(x, temps, kind='cubic')
-        temp_int = f_cubic(np.linspace(1, len(temps), num=len(temps) * 3, endpoint=True))
+        # create cubic interpolation object based on 3 hr temp forecast
+        f_cubic = interp1d(x, temps)
+        # apply cubic interpolation to hourly observations
+        temp_int = f_cubic(np.linspace(
+            1, len(temps), num=len(temps) * 3, endpoint=True))
         return temp_int.tolist()
 
     def get_time_1hr(self, weather_detail):
@@ -100,9 +121,9 @@ class GetWeather:
         Parses temperature and time from weather objects imbedded in forecast object
         :param weather detail is dictionary returned from get_weather_detail
         """
-        time1 = datetime.datetime.strptime(
+        time1 = datetime.strptime(
             min(weather_detail), '%Y-%m-%d %H:%M:%S')
-        time2 = datetime.datetime.strptime(
+        time2 = datetime.strptime(
             max(weather_detail), '%Y-%m-%d %H:%M:%S')
         dif = int((time2 - time1).total_seconds() / 3600)
         time_1hr = [(time1 + datetime.timedelta(hours=x)).strftime('%Y-%m-%d %H:%M:%S')
@@ -116,7 +137,7 @@ def create_datetime(series):
     :param series is an eia series list of attributes
     """
     freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d', 'D': '%Y%m%d'}
-    date_list = [datetime.datetime.strptime(x[0], freq[series['f']]).strftime(
+    date_list = [datetime.strptime(x[0], freq[series['f']]).strftime(
         '%Y-%m-%d %H:%M:%S') for x in series['data']]
     return date_list
 
