@@ -73,7 +73,8 @@ class GetWeather:
         self.weather = self.get_weather_data('Seattle,US')
         self.weather_detail = self.get_weather_detail(self.weather)
         self.time_1hr = self.get_time_1hr(self.weather_detail)
-        # self.temps = self.interpolate_weather(self.weather_detail, 'temp')
+        self.temps = self.interpolate_weather(
+            self.weather_detail, self.time_1hr, 'temp')
 
     def get_weather_data(self, location):
         """
@@ -103,22 +104,20 @@ class GetWeather:
             time_dict[time] = temps_dict
         return pd.DataFrame.from_dict(time_dict, orient='index')
 
-    #TODO NEED TO INTERPOLATE
-    # def interpolate_weather(self, weather_detail, key):
-    #     """
-    #     Interpolates the 3hr forecast to an hourly forecast using cubic interpolation
-    #     :param weather_detail is dict object of weather attributes returned from get_weather_detail
-    #     :param key is dict key to return temperature (temp, temp_max or temp_min)
-    #     """
-    #     # TODO need to sort weather detail by date !!!arrgrggg
-    #     temps = np.asarray([weather_detail[i][key] for i in weather_detail])
-    #     x = np.linspace(1, len(temps), num=len(temps), endpoint=True)
-    #     # create cubic interpolation object based on 3 hr temp forecast
-    #     f_cubic = interp1d(x, temps)
-    #     # apply cubic interpolation to hourly observations
-    #     temp_int = f_cubic(np.linspace(
-    #         1, len(temps), num=len(temps) * 3, endpoint=True))
-    #     return temp_int.tolist()
+    @staticmethod
+    def interpolate_weather(weather_detail, time, key):
+        """
+        Interpolates the 3hr forecast to an hourly forecast using cubic interpolation
+        :param weather_detail is dataframe weather attributes returned from get_weather_detail
+        :param key is weather detail dataframe column (temp, temp_max or temp_min)
+        """
+        date_len = len(weather_detail.index)
+        date_axis = np.linspace(1, date_len, date_len, endpoint=True)
+        f_cubic = interp1d(date_axis, weather_detail[key])
+        temp_int = f_cubic(np.linspace(
+            1, date_len, num=date_len * 3 - 2, endpoint=True))
+        return pd.DataFrame(temp_int.tolist(), index=time)
+
     @staticmethod
     def get_time_1hr(weather_detail):
         """
