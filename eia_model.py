@@ -53,9 +53,15 @@ class GetEnergy(object):
         :param series: a series object returned by eia json['series']
         """
         # create a dict to look up datetime frequency values
-        freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d', 'D': '%Y%m%d'}
-        date_list = [datetime.strptime(x[0], freq[series['f']]).strftime(
-            '%Y-%m-%d %H:%M:%S') for x in series['data']]
+        freq = {'A': '%Y', 'M': '%Y%m', 'W': '%Y%m%d',
+                'D': '%Y%m%d', 'H': '%Y%m%d %H'}
+        date_list = []
+        for x in series['data']:
+            # need to add this ugly bit to remove hourly time format
+            time = x[0].replace('T', ' ')
+            time = time.replace('Z', '')
+            date_list.append(datetime.strptime(
+                time, freq[series['f']]).strftime('%Y-%m-%d %H:%M:%S'))
         return date_list
 
     @staticmethod
@@ -66,17 +72,17 @@ class GetEnergy(object):
         return [value[1] for value in series['data']]
 
 
-class GetWeather:
+class GetWeather(object):
 
     def __init__(self, api_key):
         self.api_key = api_key
-        self.weather = self.get_weather_data('Seattle,US')
-        self.weather_detail = self.get_weather_detail(self.weather)
+        self.forecast = self.get_weather_forecast('Seattle,US')
+        self.weather_detail = self.get_weather_detail(self.forecast)
         self.time_1hr = self.get_time_1hr(self.weather_detail)
         self.temps = self.interpolate_weather(
             self.weather_detail, self.time_1hr, 'temp')
 
-    def get_weather_data(self, location):
+    def get_weather_forecast(self, location):
         """
         Gets weather forecast from openweathermap
         :param location: a valid location provided to owm weather api

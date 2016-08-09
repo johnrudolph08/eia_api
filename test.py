@@ -1,6 +1,4 @@
 
 eia_api = '5F4109570C68FDE20F42C25F5152D879'
 owm_api = '15469feacecb3b229172bf20a0227e8b'
-sid = 'NG.NW2_EPG0_SWO_R48_BCF.W'
-series_id_inp2 = 'ELEC.GEN.ALL-AL-99.A'
-
+sid = 'EBA.SCL-ALL.D.H'
