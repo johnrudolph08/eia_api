@@ -6,10 +6,14 @@ import numpy as np
 from scipy.interpolate import interp1d
 from datetime import datetime
 
+# TODO NEED TO CREATE REGRESSION
+# LIMIT HISTORICAL OBS TO 24*7*5 obs (5 weeks of data)
+# POSSIBLE INCLUSION OF AR(1) TERM
+
 
 class GetEnergy(object):
     """
-    Class the beturns an eia_api object
+    A class to capture an EIA API call
     """
 
     eia_url = 'http://api.eia.gov/series/'
@@ -40,6 +44,10 @@ class GetEnergy(object):
         return json.loads(eia_req.text)
 
     def create_dataframes(self, json):
+        """
+        Creates a pandas dataframe of data key in json returned from get_series
+        :param json: is an eia json object
+        """
         df_dict = {}
         for series in json['series']:
             df = pd.DataFrame(self.get_values(series), index=self.get_dates(series),
@@ -47,8 +55,7 @@ class GetEnergy(object):
             df_dict[series['series_id']] = df
         return df_dict
 
-    @staticmethod
-    def get_dates(series):
+    def get_dates(self, series):
         """Parse dates from eia json['series']
         :param series: a series object returned by eia json['series']
         """
@@ -57,61 +64,68 @@ class GetEnergy(object):
                 'D': '%Y%m%d', 'H': '%Y%m%d %H'}
         date_list = []
         for x in series['data']:
-            # need to add this ugly bit to remove hourly time format
+            # need to add this ugly bit to remove hourly time format from EIA
             time = x[0].replace('T', ' ')
             time = time.replace('Z', '')
             date_list.append(datetime.strptime(
                 time, freq[series['f']]).strftime('%Y-%m-%d %H:%M:%S'))
         return date_list
 
-    @staticmethod
-    def get_values(series):
+    def get_values(self, series):
         """Parse values from eia json['series']
         :param series: a series object returned by eia json['series']
         """
         return [value[1] for value in series['data']]
 
 
-class GetWeather(object):
+class GetWeatherForecast(object):
+    """
+    A class to capture an pyowm weather forecast call
+    """
 
-    def __init__(self, api_key):
+    owm_url = 'http://api.openweathermap.org/data/2.5/forecast/city?id={}&APPID={}&units={}'
+
+    def __init__(self, api_key, city_id, units=None):
+        """
+        Create pyowm forecast object and return related attributes
+        :param api_key: a valid Open Weath Map Api-Key
+        :param city_id: a valid Open Weather Map city ID
+        :param units: default is Kelvin, imperial=Fahrenheight
+        """
         self.api_key = api_key
-        self.forecast = self.get_weather_forecast('Seattle,US')
-        self.weather_detail = self.get_weather_detail(self.forecast)
-        self.time_1hr = self.get_time_1hr(self.weather_detail)
-        self.temps = self.interpolate_weather(
-            self.weather_detail, self.time_1hr, 'temp')
+        self.city_id = city_id
+        self.units = units
+        self.json = self.get_series()
+        self.weather_detail = self.create_dataframes(self.json)
+        self.hourly_time = self.get_time_hourly(self.weather_detail)
+        self.hourly_temps = self.interpolate_weather(self.weather_detail,
+                                                     self.hourly_time, 'temp')
 
-    def get_weather_forecast(self, location):
+    def get_series(self):
         """
-        Gets weather forecast from openweathermap
-        :param location: a valid location provided to owm weather api
+        Calls the EIA API with supplied api_key on init and series_id and return json
         """
-        owm = pyowm.OWM(self.api_key)
-        fc = owm.three_hours_forecast(location)
-        f = fc.get_forecast()
-        return f.get_weathers()
+        owm_req = requests.get(self.owm_url.format(
+            self.city_id, self.api_key, self.units))
+        return json.loads(owm_req.text)
 
-    @staticmethod
-    def get_weather_detail(weather):
+    def create_dataframes(self, json):
         """
-        Returns a nested dictionary where first key is date and second key is temp attrs
-        :param weather is a object from get_weather_data
+        Creates a pandas dataframe of data key in json returned from get_series
+        :param json: is an owm forecast json object
         """
         time_dict = {}
         # first loop through each 3 hr interval in forecast
-        for i in weather:
-            time = datetime.fromtimestamp(
-                i.get_reference_time()).strftime('%Y-%m-%d %H:%M:%S')
+        for i in json['list']:
+            time = datetime.strptime(i['dt_txt'], '%Y-%m-%d %H:%M:%S')
             temps_dict = {'temp': None, 'temp_max': None, 'temp_min': None}
             # create nested dict for each temp attribute
             for j in temps_dict:
-                temps_dict[j] = i.get_temperature('fahrenheit').get(j)
+                temps_dict[j] = i['main'][j]
             time_dict[time] = temps_dict
         return pd.DataFrame.from_dict(time_dict, orient='index')
 
-    @staticmethod
-    def interpolate_weather(weather_detail, time, key):
+    def interpolate_weather(self, weather_detail, time, key):
         """
         Interpolates the 3hr forecast to an hourly forecast using cubic interpolation
         :param weather_detail is dataframe weather attributes returned from get_weather_detail
@@ -124,8 +138,7 @@ class GetWeather(object):
             1, date_len, num=date_len * 3 - 2, endpoint=True))
         return pd.DataFrame(temp_int.tolist(), index=time)
 
-    @staticmethod
-    def get_time_1hr(weather_detail):
+    def get_time_hourly(self, weather_detail):
         """
         Parses temperature and time from weather objects imbedded in forecast object
         :param weather detail is dictionary returned from get_weather_detail
