@@ -1,14 +1,15 @@
 import requests
+import requests_cache
 import json
-import pyowm
 import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from datetime import datetime
+import time
 
-# TODO NEED TO CREATE REGRESSION
-# LIMIT HISTORICAL OBS TO 24*7*5 obs (5 weeks of data)
-# POSSIBLE INCLUSION OF AR(1) TERM
+
+# install request cache to limit calls to api while testing
+requests_cache.install_cache('api_cache', backend='sqlite', expire_after=600)
 
 
 class GetEnergy(object):
@@ -117,7 +118,8 @@ class GetWeatherForecast(object):
         time_dict = {}
         # first loop through each 3 hr interval in forecast
         for i in json['list']:
-            time = datetime.strptime(i['dt_txt'], '%Y-%m-%d %H:%M:%S')
+            time = self.utc2local(datetime.strptime(
+                i['dt_txt'], '%Y-%m-%d %H:%M:%S'))
             temps_dict = {'temp': None, 'temp_max': None, 'temp_min': None}
             # create nested dict for each temp attribute
             for j in temps_dict:
@@ -136,7 +138,7 @@ class GetWeatherForecast(object):
         f_cubic = interp1d(date_axis, weather_detail[key])
         temp_int = f_cubic(np.linspace(
             1, date_len, num=date_len * 3 - 2, endpoint=True))
-        return pd.DataFrame(temp_int.tolist(), index=time)
+        return pd.DataFrame(temp_int, index=time, columns=['temp'])
 
     def get_time_hourly(self, weather_detail):
         """
@@ -145,3 +147,13 @@ class GetWeatherForecast(object):
         """
         min_time, max_time = weather_detail.index.min(), weather_detail.index.max()
         return pd.date_range(min_time, max_time, freq='H')
+
+    @staticmethod
+    def utc2local(utc):
+        """
+        Convert UTC to local
+        """
+        epoch = time.mktime(utc.timetuple())
+        offset = datetime.fromtimestamp(
+            epoch) - datetime.utcfromtimestamp(epoch)
+        return utc + offset
