@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from datetime import datetime
+from io import StringIO
+import pytz
 import time
 
 
@@ -31,7 +33,7 @@ class GetEnergy(object):
         self.api_key = api_key
         self.series_id = [";".join(args)]
         self.json = self.get_series()
-        self.df = self.create_dataframes(self.json)
+        self.dataframe = self.create_dataframes()
 
     def get_series(self):
         """
@@ -44,19 +46,20 @@ class GetEnergy(object):
         eia_req = requests.get(self.eia_url, params=api_parms)
         return json.loads(eia_req.text)
 
-    def create_dataframes(self, json):
+    def create_dataframes(self):
         """
         Creates a pandas dataframe of data key in json returned from get_series
         :param json: is an eia json object
         """
         df_dict = {}
-        for series in json['series']:
+        for series in self.json['series']:
             df = pd.DataFrame(self.get_values(series), index=self.get_dates(series),
                               columns=['values'])
             df_dict[series['series_id']] = df
         return df_dict
 
-    def get_dates(self, series):
+    @staticmethod
+    def get_dates(series):
         """Parse dates from eia json['series']
         :param series: a series object returned by eia json['series']
         """
@@ -72,7 +75,8 @@ class GetEnergy(object):
                 time, freq[series['f']]).strftime('%Y-%m-%d %H:%M:%S'))
         return date_list
 
-    def get_values(self, series):
+    @staticmethod
+    def get_values(series):
         """Parse values from eia json['series']
         :param series: a series object returned by eia json['series']
         """
@@ -84,7 +88,7 @@ class GetWeatherForecast(object):
     A class to capture an pyowm weather forecast call
     """
 
-    owm_url = 'http://api.openweathermap.org/data/2.5/forecast/city?id={}&APPID={}&units={}'
+    owm_url = 'http://api.openweathermap.org/data/2.5/forecast'
 
     def __init__(self, api_key, city_id, units=None):
         """
@@ -106,8 +110,12 @@ class GetWeatherForecast(object):
         """
         Calls the EIA API with supplied api_key on init and series_id and return json
         """
-        owm_req = requests.get(self.owm_url.format(
-            self.city_id, self.api_key, self.units))
+        owm_parms = (
+            ('id', self.city_id),
+            ('APPID', self.api_key),
+            ('units', self.units),
+        )
+        owm_req = requests.get(self.owm_url, params=owm_parms)
         return json.loads(owm_req.text)
 
     def create_dataframes(self, json):
@@ -151,9 +159,53 @@ class GetWeatherForecast(object):
     @staticmethod
     def utc2local(utc):
         """
-        Convert UTC to local
+        Convert UTC time to local time
+        :param utc: datetime object with UTC format
         """
         epoch = time.mktime(utc.timetuple())
         offset = datetime.fromtimestamp(
             epoch) - datetime.utcfromtimestamp(epoch)
         return utc + offset
+
+
+class GetWeatherHistory(object):
+    """
+    A class to capture an pyowm weather history call
+    """
+
+    noaa_url = 'http://www7.ncdc.noaa.gov/rest/services/values/isd/{}/{}/{}/{}/?output=csv&token={}'
+
+    def __init__(self, ncdc_api, station_id, variable, start, end):
+        """
+        Create pyowm forecast object and return related attributes
+        :param api_key: a valid Open Weath Map Api-Key
+        :param city_id: a valid Open Weather Map city ID
+        :param type: a time interval ex:hour
+        :param units: default is Kelvin, imperial=Fahrenheight
+        :param start: a start time in %Y-%m-%d %H:%M:%S format
+        :param end: and end time %Y-%m-%d %H:%M:%S format
+        """
+        self.api_key = ncdc_api
+        self.station_id = station_id
+        self.variable = variable
+        self.start = start
+        self.end = end
+        self.req = self.get_series()
+        self.dataframe = self.create_dataframe().dropna(axis=1, how='all')
+
+    def get_series(self):
+        """
+        Calls the EIA API with supplied api_key on init and series_id and return json
+        """
+        noaa_req = requests.get(self.noaa_url.format(self.station_id, self.variable, self.start,
+                                                     self.end, self.api_key))
+        return noaa_req
+
+    def create_dataframe(self):
+        df = pd.read_csv(StringIO(self.req.text), header=None,
+                         na_values='null', keep_default_na=True, na_filter=True)
+        # filter for hourly reads 'FM-15'
+        df = df[df[19] == 'FM-15']
+        df[3] = df[3].map("{:04}".format)
+        df['date'] = pd.to_datetime(df[2].map(str) + df[3].map(str), format='%Y%m%d%H%M')
+        return df.set_index(df['date'])
