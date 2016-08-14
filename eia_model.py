@@ -6,9 +6,14 @@ import numpy as np
 from scipy.interpolate import interp1d
 from datetime import datetime
 from io import StringIO
-import pytz
 import time
 
+# TODO GetEnergy can handle time series filter
+# need to limit GetWeatherForecast to filter 24 hours df[:24]
+# need to convert Weather to HDD/CDD
+# break out dataframes into own classes?
+# write script to fetch Energy and Weather history from last week
+# need to run a regression and use parms
 
 # install request cache to limit calls to api while testing
 requests_cache.install_cache('api_cache', backend='sqlite', expire_after=600)
@@ -21,17 +26,22 @@ class GetEnergy(object):
 
     eia_url = 'http://api.eia.gov/series/'
 
-    def __init__(self, api_key, *args):
+    def __init__(self, api_key, series, start=None, end=None):
         """
         Create eia_api object and related attriobutes from json
         :param api_key: an API key that is provided by EIA
+        :param start: a start date must be in the same date format as eia series
+        :param end:a date
         :param *args: The series id (also called source key) is a
                        case-insensitive string consisting of letters, numbers, dashes
                        ("-") and periods (".") that uniquely identifies an EIA series\
                        multiple series can be submitted by comma separation ex: api_key, s1, s2
         """
         self.api_key = api_key
-        self.series_id = [";".join(args)]
+        self.series_id = series
+        # self.series_id = [";".join(args)] TODO setup to handle *args
+        self.start = start
+        self.end = end
         self.json = self.get_series()
         self.dataframe = self.create_dataframes()
 
@@ -39,11 +49,16 @@ class GetEnergy(object):
         """
         Calls the EIA API with supplied api_key on init and series_id and return json
         """
+        # default api params required for call
         api_parms = (
             ('api_key', self.api_key),
             ('series_id', self.series_id),
         )
+        # add optional time parms
+        if self.start and self.end is not None:
+            api_parms = api_parms + (('start', self.start), ('end', self.end),)
         eia_req = requests.get(self.eia_url, params=api_parms)
+        print(eia_req.url)
         return json.loads(eia_req.text)
 
     def create_dataframes(self):
@@ -101,9 +116,9 @@ class GetWeatherForecast(object):
         self.city_id = city_id
         self.units = units
         self.json = self.get_series()
-        self.weather_detail = self.create_dataframes(self.json)
-        self.hourly_time = self.get_time_hourly(self.weather_detail)
-        self.hourly_temps = self.interpolate_weather(self.weather_detail,
+        self.dataframe = self.create_dataframes(self.dataframe)
+        self.hourly_time = self.get_time_hourly(self.dataframel)
+        self.hourly_temps = self.interpolate_weather(self.dataframe,
                                                      self.hourly_time, 'temp')
 
     def get_series(self):
@@ -207,5 +222,6 @@ class GetWeatherHistory(object):
         # filter for hourly reads 'FM-15'
         df = df[df[19] == 'FM-15']
         df[3] = df[3].map("{:04}".format)
-        df['date'] = pd.to_datetime(df[2].map(str) + df[3].map(str), format='%Y%m%d%H%M')
+        df['date'] = pd.to_datetime(
+            df[2].map(str) + df[3].map(str), format='%Y%m%d%H%M')
         return df.set_index(df['date'])
