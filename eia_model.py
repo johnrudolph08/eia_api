@@ -11,7 +11,6 @@ import time
 # TODO GetEnergy can handle time series filter
 # need to limit GetWeatherForecast to filter 24 hours df[:24]
 # need to convert Weather to HDD/CDD
-# break out dataframes into own classes?
 # write script to fetch Energy and Weather history from last week
 # need to run a regression and use parms
 
@@ -116,8 +115,8 @@ class GetWeatherForecast(object):
         self.city_id = city_id
         self.units = units
         self.json = self.get_series()
-        self.dataframe = self.create_dataframes(self.dataframe)
-        self.hourly_time = self.get_time_hourly(self.dataframel)
+        self.dataframe = self.create_dataframes(self.json)
+        self.hourly_time = self.get_time_hourly(self.dataframe)
         self.hourly_temps = self.interpolate_weather(self.dataframe,
                                                      self.hourly_time, 'temp')
 
@@ -161,7 +160,10 @@ class GetWeatherForecast(object):
         f_cubic = interp1d(date_axis, weather_detail[key])
         temp_int = f_cubic(np.linspace(
             1, date_len, num=date_len * 3 - 2, endpoint=True))
-        return pd.DataFrame(temp_int, index=time, columns=['temp'])
+        df = pd.DataFrame(temp_int, index=time, columns=['temp'])
+        df['hdd'] = df.apply(create_hdd, axis=1)
+        df['cdd'] = df.apply(create_cdd, axis=1)
+        return df
 
     def get_time_hourly(self, weather_detail):
         """
@@ -203,8 +205,8 @@ class GetWeatherHistory(object):
         self.api_key = ncdc_api
         self.station_id = station_id
         self.variable = variable
-        self.start = start
-        self.end = end
+        self.start = self.local2utc(start)
+        self.end = self.local2utc(end)
         self.req = self.get_series()
         self.dataframe = self.create_dataframe().dropna(axis=1, how='all')
 
@@ -224,4 +226,50 @@ class GetWeatherHistory(object):
         df[3] = df[3].map("{:04}".format)
         df['date'] = pd.to_datetime(
             df[2].map(str) + df[3].map(str), format='%Y%m%d%H%M')
+        df['date'] = df.apply(self.utc2local, axis=1)
+        df['temp'] = df.apply(self.temp_convert, axis=1)
+        df['hdd'] = df.apply(create_hdd, axis=1)
+        df['cdd'] = df.apply(create_cdd, axis=1)
         return df.set_index(df['date'])
+
+    @staticmethod
+    def utc2local(date):
+        epoch = time.mktime(date['date'].timetuple())
+        offset = datetime.fromtimestamp(
+            epoch) - datetime.utcfromtimestamp(epoch)
+        return date['date'] + offset
+
+    @staticmethod
+    def local2utc(date):
+        """Converts a time in local time to GMT to input to ncdc
+        :param date: a date in %Y-%m-%d %H:%M format
+        """
+        date = datetime.strptime(date, '%Y-%m-%d %H:%M')
+        epoch = time.mktime(date.timetuple())
+        offset = datetime.fromtimestamp(
+            epoch) - datetime.utcfromtimestamp(epoch)
+        date_gmt = datetime.strftime(date - offset, '%Y%m%d%H%M')
+        return date_gmt
+
+    @staticmethod
+    def temp_convert(temp):
+        return temp[5] / 10 * 9 / 5 + 32
+
+
+def create_hdd(temp):
+    """Converts F to HDD"""
+    return max(0, 65 - temp['temp'])
+
+
+def create_cdd(temp):
+    """Converts F to DD"""
+    return max(0, temp['temp'] - 65)
+
+
+def local2utc(date):
+    date = datetime.strptime(date, '%Y-%m-%d %H:%M')
+    epoch = time.mktime(date.timetuple())
+    offset = datetime.fromtimestamp(
+        epoch) - datetime.utcfromtimestamp(epoch)
+    date_gmt = datetime.strftime(date - offset, '%Y%m%d%H%M')
+    return date_gmt
