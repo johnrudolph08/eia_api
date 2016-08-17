@@ -57,7 +57,6 @@ class GetEnergy(object):
         if self.start and self.end is not None:
             api_parms = api_parms + (('start', self.start), ('end', self.end),)
         eia_req = requests.get(self.eia_url, params=api_parms)
-        print(eia_req.url)
         return json.loads(eia_req.text)
 
     def create_dataframes(self):
@@ -241,7 +240,7 @@ class GetWeatherHistory(object):
 
     @staticmethod
     def local2utc(date):
-        """Converts a time in local time to GMT to input to ncdc
+        """Converts a time in local time to GMT to input to ncdc url
         :param date: a date in %Y-%m-%d %H:%M format
         """
         date = datetime.strptime(date, '%Y-%m-%d %H:%M')
